@@ -8,32 +8,65 @@ import { canAcceptUpload, getStorageUsagePercent } from './storage-usage';
 
 @Injectable()
 export class AssetsService {
-  private readonly blobServiceClient: BlobServiceClient;
-  private readonly containerName: string;
-  private readonly emailClient?: EmailClient;
+  private blobServiceClient?: BlobServiceClient;
+  private containerName?: string;
+  private emailClient?: EmailClient;
 
   constructor(
     private readonly prisma: PrismaService, 
     private readonly configService: ConfigService,
   ) {
-    const connectionString = this.configService.get<string>('AZURE_STORAGE_CONNECTION_STRING');
-    const containerName = this.configService.get<string>('AZURE_CONTAINER_NAME');
-    const emailConnectionString = this.configService.get<string>('AZURE_EMAIL_CONNECTION_STRING');
-
-    if (!connectionString) throw new Error('AZURE_STORAGE_CONNECTION_STRING must be defined');
-    if (!containerName) throw new Error('AZURE_CONTAINER_NAME must be defined');
-
-    this.containerName = containerName;
-    this.blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
-
-    if (process.env.NODE_ENV === 'production') {
-      if (!emailConnectionString) throw new Error('AZURE_EMAIL_CONNECTION_STRING must be defined');
-      this.emailClient = new EmailClient(emailConnectionString);
-    }
   }
 
   private getBlobClient(blobName: string) {
-    return this.blobServiceClient.getContainerClient(this.containerName).getBlockBlobClient(blobName);
+    return this.getBlobServiceClient().getContainerClient(this.getContainerName()).getBlockBlobClient(blobName);
+  }
+
+  private getContainerName() {
+    if (!this.containerName) {
+      const containerName = this.configService.get<string>('AZURE_CONTAINER_NAME');
+      if (!containerName) {
+        throw new Error('AZURE_CONTAINER_NAME must be defined');
+      }
+
+      this.containerName = containerName;
+    }
+
+    return this.containerName;
+  }
+
+  private getAzureStorageConnectionString() {
+    const connectionString = this.configService.get<string>('AZURE_STORAGE_CONNECTION_STRING');
+    if (!connectionString) {
+      throw new Error('AZURE_STORAGE_CONNECTION_STRING must be defined');
+    }
+
+    return connectionString;
+  }
+
+  private getBlobServiceClient() {
+    if (!this.blobServiceClient) {
+      this.blobServiceClient = BlobServiceClient.fromConnectionString(this.getAzureStorageConnectionString());
+    }
+
+    return this.blobServiceClient;
+  }
+
+  private getEmailClient() {
+    if (process.env.NODE_ENV !== 'production') {
+      return undefined;
+    }
+
+    if (!this.emailClient) {
+      const emailConnectionString = this.configService.get<string>('AZURE_EMAIL_CONNECTION_STRING');
+      if (!emailConnectionString) {
+        throw new Error('AZURE_EMAIL_CONNECTION_STRING must be defined');
+      }
+
+      this.emailClient = new EmailClient(emailConnectionString);
+    }
+
+    return this.emailClient;
   }
 
   private formatBytes(bytes: number) {
@@ -158,7 +191,8 @@ export class AssetsService {
     // 3. SPEED BOOST FIX: Asynchronous Fire-and-Forget Email Dispatch
     const senderAddress = this.configService.get<string>('EMAIL_FROM_ADDRESS');
     if (process.env.NODE_ENV === 'production') {
-      if (senderAddress && this.emailClient) {
+      const emailClient = this.getEmailClient();
+      if (senderAddress && emailClient) {
         const emailMessage = {
           senderAddress: senderAddress,
           content: {
@@ -170,7 +204,7 @@ export class AssetsService {
           },
         };
 
-        this.emailClient.beginSend(emailMessage)
+        emailClient.beginSend(emailMessage)
           .then(async (poller) => {
             const result = await poller.pollUntilDone();
             console.log('Azure SDK Email status (Background):', result.status);
@@ -226,10 +260,10 @@ export class AssetsService {
 
   async generateBlobSasUrl(assetId: string, userId: string, role: string) {
     const asset = await this.getAssetAndVerifyOwner(assetId, userId, role);
-    const connectionString = this.configService.get<string>('AZURE_STORAGE_CONNECTION_STRING');
-    if (!connectionString) throw new Error('AZURE_STORAGE_CONNECTION_STRING must be defined');
-    
-    const parsed = new URL(this.blobServiceClient.url);
+    const connectionString = this.getAzureStorageConnectionString();
+    const containerName = this.getContainerName();
+
+    const parsed = new URL(this.getBlobServiceClient().url);
     const accountName = parsed.hostname.split('.')[0];
     const sharedKeyCredential = new StorageSharedKeyCredential(
       accountName,
@@ -238,7 +272,7 @@ export class AssetsService {
 
     const sasToken = generateBlobSASQueryParameters(
       {
-        containerName: this.containerName,
+        containerName,
         blobName: asset.blobName,
         permissions: BlobSASPermissions.parse('r'),
         startsOn: new Date(),

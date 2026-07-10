@@ -10,9 +10,9 @@ import { loadKeyVaultSecrets } from './config/keyvault.config';
 @Module({
   imports: [
     ConfigModule.forRoot({
-       isGlobal: true,
-       
-      }), 
+      isGlobal: true,
+      load: [loadKeyVaultSecrets],
+    }),
     MailerModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

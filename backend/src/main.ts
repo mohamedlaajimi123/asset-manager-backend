@@ -1,17 +1,8 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { loadKeyVaultSecrets } from './config/keyvault.config';
-import * as dotenv from 'dotenv';
 
 async function bootstrap() {
-
-  dotenv.config();
-
-  const azureSecrets = await loadKeyVaultSecrets();
-
-  Object.assign(process.env,azureSecrets);
-  
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
