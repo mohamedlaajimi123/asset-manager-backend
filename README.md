@@ -42,8 +42,6 @@ mohamedlaajimi123/asset-manager-backend:latest
 Deployment is fully controlled through a local `docker-compose.yml` file. All services required to run the ecosystem — the backend API and the PostgreSQL instance — are defined declaratively and launched through a single command in detached mode.
 
 ```yaml
-version: '3.8'
-
 services:
   # 1. existing Postgres service
   postgres:
@@ -79,9 +77,11 @@ volumes:
 
 ### Asynchronous Secret Loading
 
-The application integrates `@azure/keyvault-secrets` to retrieve critical environment parameters directly from Azure Key Vault at boot time. Secrets are fetched concurrently using `Promise.allSettled`, allowing the application to issue all secret retrieval requests in parallel rather than sequentially. Successfully resolved secrets are mapped cleanly onto the process environment variables consumed by the rest of the application, while individual retrieval failures are handled without halting the entire boot sequence.
+The application integrates `@azure/keyvault-secrets` to retrieve critical environment parameters directly from Azure Key Vault during application initialization. Secrets are fetched concurrently using `Promise.allSettled`, allowing the application to issue all secret retrieval requests in parallel rather than sequentially. Successfully resolved secrets are mapped directly onto the process environment variables consumed by the rest of the application, while individual retrieval failures are handled without halting the entire boot sequence.
 
-This approach minimizes application startup latency and provides fault isolation: a failure to resolve any single secret does not necessarily block the resolution of the others.
+Following the configuration layer refactoring, individual configuration factories — such as `JwtConfig` and `MailConfig` — and internal services now extract their required parameters directly from `process.env`, rather than through a centralized `ConfigService`. This satisfies strict separation of concerns: each factory and service is responsible only for reading the specific environment variables it depends on, with no shared configuration abstraction coupling unrelated parts of the application together.
+
+This approach minimizes application startup latency, provides fault isolation (a failure to resolve any single secret does not necessarily block the resolution of the others), and keeps configuration consumption decoupled at the point of use.
 
 ### Defensively Patched JWT Strategy
 
@@ -122,15 +122,31 @@ The `api` service loads its runtime configuration from a local `.env` file, refe
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string used by Prisma. Must target the `postgres` service (e.g. `postgresql://myuser:mypassword@postgres:5432/asset_management_db?schema=public`) using the internal container port `5432`, not the host-mapped port `5433`. |
-| `AZURE_KEY_VAULT_URI` | URI of the Azure Key Vault instance |
+| `AZURE_KEYVAULT_RESOURCEENDPOINT` | Resource endpoint URI of the Azure Key Vault instance |
 | `AZURE_CLIENT_ID` | Azure AD application client ID |
 | `AZURE_CLIENT_SECRET` | Azure AD application client secret |
 | `AZURE_TENANT_ID` | Azure AD tenant ID |
 
-Secrets stored in Azure Key Vault are resolved asynchronously at application boot, as described in [Asynchronous Secret Loading](#asynchronous-secret-loading), and are mapped onto the corresponding environment variables consumed by the NestJS configuration module. Any values also present in `.env` are made available to the container at startup; Key Vault resolution supplements or overrides these as appropriate for the deployment environment.
+`DATABASE_URL` is intentionally not part of the local `.env` file. It is now managed exclusively inside Azure Key Vault and resolved at application boot, removing the database connection string from local and containerized configuration surfaces entirely.
+
+Secrets stored in Azure Key Vault are resolved asynchronously at application boot, as described in [Asynchronous Secret Loading](#asynchronous-secret-loading), and are mapped directly onto the process environment variables consumed by the relevant configuration factories and services. Any values also present in `.env` are made available to the container at startup; Key Vault resolution supplements these for all secrets that are not intended to live in local configuration.
 
 The `postgres` service itself is configured directly through the `environment` block in `docker-compose.yml` (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`) and does not require a `.env` file.
+
+### Expected Azure Key Vault Secret Keys
+
+The secret-loading routine iterates over a fixed set of secret names when querying Azure Key Vault. The following keys are expected to exist in the vault, using the exact naming convention below:
+
+| Key Vault Secret Name | Purpose |
+|---|---|
+| `DATABASE-URL` | PostgreSQL connection string used by Prisma |
+| `JWT-SECRET` | Signing secret consumed by the JWT strategy via `secretOrKeyProvider` |
+| `AZURE-STORAGE-CONNECTION-STRING` | Connection string for Azure Blob Storage |
+| `AZURE-CONTAINER-NAME` | Target Blob Storage container name for application assets |
+| `AZURE-EMAIL-CONNECTION-STRING` | Connection string for Azure Communication Services email routing |
+| `EMAIL-FROM-ADDRESS` | Sender address used for outbound transactional email |
+
+These names use hyphen-separated casing, consistent with standard Azure Key Vault secret naming constraints, and are mapped by the loader onto their corresponding underscore-cased `process.env` variables consumed throughout the application.
 
 ## License
 
