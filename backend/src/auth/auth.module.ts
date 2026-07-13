@@ -20,7 +20,16 @@ import { PrismaService } from '../prisma.service';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy, PrismaService],
+  providers: [
+    AuthService,
+    PrismaService,
+    {
+      provide: JwtStrategy,
+      inject: [ConfigService],
+      useFactory: async (configService: ConfigService) =>
+        new JwtStrategy(configService.getOrThrow<string>('JWT_SECRET')),
+    },
+  ],
   controllers: [AuthController],
   exports: [AuthService],
 })
