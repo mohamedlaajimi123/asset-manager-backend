@@ -38,6 +38,11 @@ export async function loadKeyVaultSecrets() {
     }
 
     console.log('Successfully loaded secrets from Azure Key Vault.');
+
+    for (const [key, value] of Object.entries(secrets)) {
+      process.env[key] = value;
+    }
+
     return secrets;
   } catch (error : any) {
     console.error('Critical error connecting to Azure Key Vault:', error.message);

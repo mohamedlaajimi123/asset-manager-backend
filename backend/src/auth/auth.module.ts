@@ -15,7 +15,7 @@ import { PrismaService } from '../prisma.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.getOrThrow<string>('JWT_SECRET'),
+        secret: configService.getOrThrow<string>('azure.jwtSecret'),
         signOptions: { expiresIn: '1d' },
       }),
     }),
@@ -27,7 +27,7 @@ import { PrismaService } from '../prisma.service';
       provide: JwtStrategy,
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) =>
-        new JwtStrategy(configService.getOrThrow<string>('JWT_SECRET')),
+        new JwtStrategy(configService.getOrThrow<string>('azure.jwtSecret')),
     },
   ],
   controllers: [AuthController],

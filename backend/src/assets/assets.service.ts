@@ -16,18 +16,14 @@ export class AssetsService {
     private readonly prisma: PrismaService, 
     private readonly configService: ConfigService,
   ) {
-    const connectionString = this.configService.get<string>('AZURE_STORAGE_CONNECTION_STRING');
-    const containerName = this.configService.get<string>('AZURE_CONTAINER_NAME');
-    const emailConnectionString = this.configService.get<string>('AZURE_EMAIL_CONNECTION_STRING');
-
-    if (!connectionString) throw new Error('AZURE_STORAGE_CONNECTION_STRING must be defined');
-    if (!containerName) throw new Error('AZURE_CONTAINER_NAME must be defined');
+    const connectionString = this.configService.getOrThrow<string>('azure.storageConnectionString');
+    const containerName = this.configService.getOrThrow<string>('azure.containerName');
 
     this.containerName = containerName;
     this.blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
 
     if (process.env.NODE_ENV === 'production') {
-      if (!emailConnectionString) throw new Error('AZURE_EMAIL_CONNECTION_STRING must be defined');
+      const emailConnectionString = this.configService.getOrThrow<string>('azure.emailConnectionString');
       this.emailClient = new EmailClient(emailConnectionString);
     }
   }
@@ -156,8 +152,8 @@ export class AssetsService {
     }
 
     // 3. SPEED BOOST FIX: Asynchronous Fire-and-Forget Email Dispatch
-    const senderAddress = this.configService.get<string>('EMAIL_FROM_ADDRESS');
     if (process.env.NODE_ENV === 'production') {
+      const senderAddress = this.configService.getOrThrow<string>('azure.emailFromAddress');
       if (senderAddress && this.emailClient) {
         const emailMessage = {
           senderAddress: senderAddress,
@@ -226,8 +222,7 @@ export class AssetsService {
 
   async generateBlobSasUrl(assetId: string, userId: string, role: string) {
     const asset = await this.getAssetAndVerifyOwner(assetId, userId, role);
-    const connectionString = this.configService.get<string>('AZURE_STORAGE_CONNECTION_STRING');
-    if (!connectionString) throw new Error('AZURE_STORAGE_CONNECTION_STRING must be defined');
+    const connectionString = this.configService.getOrThrow<string>('azure.storageConnectionString');
     
     const parsed = new URL(this.blobServiceClient.url);
     const accountName = parsed.hostname.split('.')[0];
